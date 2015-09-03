@@ -1,0 +1,54 @@
+import scrapy
+import re
+from scrapy.contrib.loader import ItemLoader
+from EDMCal.items import EdmcalItem
+
+class BandsInTownSpider(scrapy.Spider):
+    name = "BandsInTown"
+    allowed_domains = ["www.bandsintown.com"]
+    #start_urls = ["http://www.bandsintown.com/RLGrime"]
+    start_urls = []
+    artistList= ["3LAU", "AboveAndBeyond", "AdventureClub", "Afrojack", "Alesso", "ArminVanBuuren", "Atmosphere", "Au5", "Audien",
+    		 "Avicii", "Axwell", "Baauer", "BagRaiders", "Bassnectar", "BennyBenassi", "Borgore", "Branchez", "Broods", "CashCash",
+    		 "CashmereCat", "Cazzette", "ChaseAndStatus", "ChetFaker", "CHVRCHES", "CleanBandit", "CryWolf", "CultureCode", "DadaLife", "DaftPunk", 
+                 "DashBerlin", "DavidGuetta","DeadMau5", "Deorro", "DillonFrancis", "Dirtyphonics", "Disclosure", 
+                 "DimitriVegasAndLikeMike", "EricPrydz", "FeedMe", "Flosstradamus",
+                 "Flume", "FluxPavilion","FoxStevenson", "Galantis", "GarethEmery", "Gemini", "Giraffage", "Gramatik", "Hardwell", "Hundaes", "JamesBlake", "JaymesYoung",
+                 "Juventa","Kaskade", "KicksNLicks", "Killabyte", "KillTheNoise", "KillParis", "KnifeParty", "Koven", 
+                 "Krewella", "Kygo", "LaidbackLuke", "LucasNord", "Madeon", "Mahi", "MartinGarrix", "MatZo", "Metric", "MitiS", "Muse", "Nero", "NERVO",
+    		 "OneRepublic", "Odesza", "PorterRobinson", "PrettyLights", "Protohype", "RlGrime", "RobinSchulz", "Rudimental", "SBTRKT", "SebastianIngrosso", "SevenLions",
+                 "Sigma", "SilversunPickups", "Singularity", "SirensCeol", "Skrillex", "SnakeHips", "SoundRemedy", "Strfkr", "SteveAngello", "SteveAoki", "Tchami", "TameImpala",
+                 "TheGlitchMob","TheXx", "ThomasJack", "ToveLo", "Vanic", "Venemy", "WhatSoNot", "Xilent", "XXYYXX", "Zedd", "ZedsDead", "Zhu"]
+    # artistList = ["EliYoungBand", "LukeBryan", "FloridaGeorgiaLine", "KaceyMusgraves", "MirandaLambert", "EricChurch", "DavidNail", "JasonAldean", "JakeOwen"]
+    for item in artistList:
+    	start_urls.append("http://www.bandsintown.com/" + item)
+    
+    def parse(self, response):
+        nameList = response.xpath('//title/text()').re('(\w+)')
+        name = ' '.join(nameList[0:nameList.index('Tour')]) #name is the artist name
+        locationList = response.xpath('//span[contains(@itemprop, "addressRegion")]/text()|//span[contains(@itemprop, "addressCountry")]/text()').extract()
+        locationIndices = [i for i, x in enumerate(locationList) if x == 'CA'] #holds indices of all divs with location CA
+        DateVenueLocation = list()
+        DateVenueLocation.append(name)
+        monthDict = {"Jan" : 1, "Feb" : 2, "Mar" : 3, "Apr" : 4, "May" : 5, "Jun" : 6, "Jul" : 7, "Aug" : 8, "Sep" : 9, "Oct" : 10, "Nov" : 11, "Dec" : 12}
+        days = [31,28,31,30,31,30,31,31,30,31,30,31] #number of days in each month
+        for index in locationIndices: #DateVenueLocation = [name, [date1,venue1,location1,ticketLink1], ...]
+            if(name == "RL Grime"):
+                index += 1
+            DateVenueLocation.append([response.xpath('//table/tr[' + str(index+2) + ']/td/a/text()').extract()[0],
+                                       ' '.join(response.xpath('//tr[' + str(index+2) + ']//td[contains(@class, "venue")]//a//text()').extract()),
+                                       ' '.join(response.xpath('//tr[' + str(index+2) + ']//td[contains(@class, "location")]//a//span//text()').extract()),
+                                       ' '.join(response.xpath('//tr[' + str(index+2) + ']/td/a/@data-buy-tix').extract()) ])
+        sortedDict = {}
+        sortedList = list()
+        for j in range(1,len(DateVenueLocation)):
+            numMonth = float(monthDict[re.match(r'[A-Z][a-z][a-z]', DateVenueLocation[j][0]).group()]) 
+            numDay = float((re.compile('\d\d').findall(DateVenueLocation[j][0]))[0])/(days[int(numMonth)-1]+1)
+            num = numMonth + numDay
+            sortedList.append( [num, DateVenueLocation[j][1], DateVenueLocation[j][2], DateVenueLocation[j][3] ])    
+        sortedDict[name] = sortedList #sortedDict = {name: [[date1, venue1, location1, ticketLink1], ... ]} with date1 <= date2 <= ...
+        if(sortedDict[name]): #if there are events in CA (ie, the dictionary is not empty)
+                l = ItemLoader(item=EdmcalItem(), response=response)
+                l.add_value('name', name)
+                l.add_value('venueList', sortedDict[name])
+                return l.load_item() #returns dictionary in JSON
